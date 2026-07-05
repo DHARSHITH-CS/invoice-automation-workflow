@@ -1,0 +1,9 @@
+{
+  "name": "nocodb-local-launcher",
+  "version": "1.0.0",
+  "private": true,
+  "dependencies": {
+    "express": "^5.2.1",
+    "nocodb": "^0.301.3"
+  }
+}

@@ -1,0 +1,92 @@
+{
+  "_comment": "Expected AI extraction output for each sample-data/*.pdf, i.e. the JSON that node 'AI - Extract Invoice Data (OpenAI)' + 'Parse AI JSON (success)' should produce before cleaning. Used as fixtures for manual/offline testing of the Clean & Validate step without calling the real OpenAI API.",
+
+  "sample-invoice-clean.pdf": {
+    "vendor": "Northwind Office Supplies Pvt Ltd",
+    "vendor_uid": "VEN-1001",
+    "vendor_iban": "DE89370400440532013000",
+    "invoice_number": "INV-2026-0143",
+    "invoice_date": "2026-06-12",
+    "due_date": "2026-07-12",
+    "net_amount": 585.00,
+    "vat_amount": 111.15,
+    "vat_percent": 19,
+    "gross_amount": 696.15,
+    "currency": "EUR",
+    "cost_center": "FAC-OPS-04",
+    "line_items": [
+      { "description": "A4 Paper Ream (500 sheets)", "quantity": 50, "unit_price": 4.50, "amount": 225.00 },
+      { "description": "Ergonomic Office Chair", "quantity": 3, "unit_price": 120.00, "amount": 360.00 }
+    ],
+    "confidence": 0.97,
+    "anomalies": []
+  },
+
+  "sample-invoice-missing-fields.pdf": {
+    "vendor": "Bluewave IT Services LLC",
+    "vendor_uid": "VEN-1002",
+    "vendor_iban": "",
+    "invoice_number": "BW-77821",
+    "invoice_date": "2026-06-01",
+    "due_date": null,
+    "net_amount": 1050.00,
+    "vat_amount": 210.00,
+    "vat_percent": 20,
+    "gross_amount": 1000.00,
+    "currency": "GBP",
+    "cost_center": "IT-CLOUD-01",
+    "line_items": [
+      { "description": "Monthly Cloud Hosting - June 2026", "quantity": 1, "unit_price": 850.00, "amount": 850.00 },
+      { "description": "Support Retainer", "quantity": 1, "unit_price": 200.00, "amount": 200.00 }
+    ],
+    "confidence": 0.55,
+    "anomalies": [
+      "Vendor IBAN missing",
+      "Due date not present on invoice",
+      "Gross amount (1000.00) does not match Net + VAT (1260.00)"
+    ]
+  },
+
+  "sample-invoice-duplicate.pdf": {
+    "vendor": "Northwind Office Supplies Pvt Ltd",
+    "vendor_uid": "VEN-1001",
+    "vendor_iban": "DE89370400440532013000",
+    "invoice_number": "INV-2026-0143",
+    "invoice_date": "2026-06-12",
+    "due_date": "2026-07-12",
+    "net_amount": 585.00,
+    "vat_amount": 111.15,
+    "vat_percent": 19,
+    "gross_amount": 696.15,
+    "currency": "EUR",
+    "cost_center": "FAC-OPS-04",
+    "line_items": [
+      { "description": "A4 Paper Ream (500 sheets)", "quantity": 50, "unit_price": 4.50, "amount": 225.00 },
+      { "description": "Ergonomic Office Chair", "quantity": 3, "unit_price": 120.00, "amount": 360.00 }
+    ],
+    "confidence": 0.97,
+    "anomalies": [],
+    "_note": "AI extraction is identical to sample-invoice-clean.pdf on purpose - the duplicate is only detected downstream by the 'NocoDB - Search Duplicate Invoice' step matching VendorUID + InvoiceNumber against the already-stored record."
+  },
+
+  "sample-invoice-blocked-vendor.pdf": {
+    "vendor": "Suspicious Traders Co",
+    "vendor_uid": "VEN-9999",
+    "vendor_iban": "XX00000000000000000000",
+    "invoice_number": "ST-000451",
+    "invoice_date": "2026-06-20",
+    "due_date": "2026-07-20",
+    "net_amount": 5000.00,
+    "vat_amount": 0,
+    "vat_percent": 0,
+    "gross_amount": 5000.00,
+    "currency": "USD",
+    "cost_center": "OPS-MISC-00",
+    "line_items": [
+      { "description": "Consulting Services", "quantity": 10, "unit_price": 500.00, "amount": 5000.00 }
+    ],
+    "confidence": 0.9,
+    "anomalies": [],
+    "_note": "AI extraction itself looks clean - the 'Blocked' status is only known to the Vendors master table and is flagged downstream by the 'NocoDB - Search Vendor Master' + 'Apply Vendor Validation' steps, not by the AI."
+  }
+}

@@ -1,0 +1,45 @@
+version: "3.8"
+
+# Invoice Automation Workflow - local stack
+# Brings up:
+#   - n8n        (workflow engine)          -> http://localhost:5678
+#   - NocoDB     (database + REST API)      -> http://localhost:8080
+#
+# Both services persist data to named volumes so state survives restarts.
+
+services:
+  nocodb:
+    image: nocodb/nocodb:latest
+    container_name: invoice-nocodb
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    environment:
+      NC_DB: "sqlite3"
+    volumes:
+      - nocodb_data:/usr/app/data
+
+  n8n:
+    image: n8nio/n8n:latest
+    container_name: invoice-n8n
+    restart: unless-stopped
+    ports:
+      - "5678:5678"
+    env_file:
+      - .env
+    environment:
+      - N8N_SECURE_COOKIE=false
+      - N8N_BASIC_AUTH_ACTIVE=false
+      - GENERIC_TIMEZONE=Asia/Kolkata
+      - TZ=Asia/Kolkata
+      - N8N_HOST=localhost
+      - WEBHOOK_URL=http://localhost:5678/
+      - N8N_RUNNERS_ENABLED=true
+    volumes:
+      - n8n_data:/home/node/.n8n
+    depends_on:
+      - nocodb
+
+volumes:
+  nocodb_data:
+  n8n_data:

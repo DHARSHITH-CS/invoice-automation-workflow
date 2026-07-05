@@ -1,0 +1,30 @@
+[
+  {
+    "VendorName": "Northwind Office Supplies Pvt Ltd",
+    "VendorUID": "VEN-1001",
+    "VendorIBAN": "DE89370400440532013000",
+    "Status": "Active",
+    "Notes": "Preferred stationery & office supplies vendor"
+  },
+  {
+    "VendorName": "Bluewave IT Services LLC",
+    "VendorUID": "VEN-1002",
+    "VendorIBAN": "GB29NWBK60161331926819",
+    "Status": "Active",
+    "Notes": "Managed hosting and cloud infrastructure vendor"
+  },
+  {
+    "VendorName": "Orion Logistics GmbH",
+    "VendorUID": "VEN-1003",
+    "VendorIBAN": "FR1420041010050500013M02606",
+    "Status": "Active",
+    "Notes": "Freight & logistics partner"
+  },
+  {
+    "VendorName": "Suspicious Traders Co",
+    "VendorUID": "VEN-9999",
+    "VendorIBAN": "XX00000000000000000000",
+    "Status": "Blocked",
+    "Notes": "Flagged by compliance in 2025 review — do not process payments"
+  }
+]

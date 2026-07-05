@@ -1,0 +1,13 @@
+# local-run is a throwaway dev harness (no Docker on this machine) - never ship its deps/data
+local-run/node_modules/
+local-run/n8n-data/
+local-run/*.log
+local-run/nc_data*
+
+# secrets - never commit real credentials
+docker/.env
+
+node_modules/
+*.log
+local-run/*.db
+local-run/noco.db

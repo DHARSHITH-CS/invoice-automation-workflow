@@ -1,0 +1,127 @@
+{
+  "name": "03 - Error Handler",
+  "nodes": [
+    {
+      "id": "node-44-error-trigger",
+      "name": "Error Trigger",
+      "type": "n8n-nodes-base.errorTrigger",
+      "typeVersion": 1,
+      "position": [
+        -600,
+        0
+      ],
+      "parameters": {}
+    },
+    {
+      "id": "node-45-format-error-details",
+      "name": "Format Error Details",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -360,
+        0
+      ],
+      "parameters": {
+        "jsCode": "const exec = $json.execution || {};\nconst wf = $json.workflow || {};\nconst trigger = $json.trigger || {};\n\nreturn [{\n  json: {\n    workflowName: wf.name || 'unknown',\n    failedNode: (exec.lastNodeExecuted) || 'unknown',\n    errorMessage: (exec.error && exec.error.message) || 'unknown error',\n    mode: trigger.mode || 'unknown',\n    timestamp: new Date().toISOString(),\n  },\n}];"
+      }
+    },
+    {
+      "id": "node-46-nocodb-write-audit-log-system-error",
+      "name": "NocoDB - Write Audit Log (System Error)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -120,
+        0
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.NOCODB_BASE_URL }}/api/v2/tables/{{ $env.NOCODB_TABLE_AUDITLOG }}/records",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "options": {},
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ Action: 'Error', Actor: 'system:' + $json.workflowName, Details: JSON.stringify({ node: $json.failedNode, message: $json.errorMessage, mode: $json.mode, timestamp: $json.timestamp }), }) }}"
+      },
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "3",
+          "name": "NocoDB API Token"
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000
+    },
+    {
+      "id": "node-47-slack-alert-on-failure",
+      "name": "Slack - Alert On Failure",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        140,
+        0
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "https://slack.com/api/chat.postMessage",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ channel: $env.SLACK_ALERT_CHANNEL, text: ':rotating_light: Invoice automation failure in *' + $('Format Error Details').item.json.workflowName + '* at node *' + $('Format Error Details').item.json.failedNode + '*: ' + $('Format Error Details').item.json.errorMessage }) }}",
+        "options": {}
+      },
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "4",
+          "name": "Slack Bot Token"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Error Trigger": {
+      "main": [
+        [
+          {
+            "node": "Format Error Details",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Format Error Details": {
+      "main": [
+        [
+          {
+            "node": "NocoDB - Write Audit Log (System Error)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "NocoDB - Write Audit Log (System Error)": {
+      "main": [
+        [
+          {
+            "node": "Slack - Alert On Failure",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "pinData": {},
+  "meta": {
+    "instanceId": "invoice-automation-assignment"
+  }
+}

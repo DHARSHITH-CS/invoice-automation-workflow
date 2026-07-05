@@ -1,0 +1,44 @@
+[
+  {
+    "DepartmentName": "Finance",
+    "ApproverName": "Aditi Rao",
+    "ApproverEmail": "finance-approver@example.com",
+    "ApproverSlackId": "U0FINANCE01",
+    "ApprovalThreshold": 500000
+  },
+  {
+    "DepartmentName": "IT",
+    "ApproverName": "Rahul Mehta",
+    "ApproverEmail": "it-approver@example.com",
+    "ApproverSlackId": "U0IT000001",
+    "ApprovalThreshold": 200000
+  },
+  {
+    "DepartmentName": "Operations",
+    "ApproverName": "Sneha Iyer",
+    "ApproverEmail": "ops-approver@example.com",
+    "ApproverSlackId": "U0OPS00001",
+    "ApprovalThreshold": 300000
+  },
+  {
+    "DepartmentName": "Marketing",
+    "ApproverName": "Karan Shah",
+    "ApproverEmail": "marketing-approver@example.com",
+    "ApproverSlackId": "U0MKT00001",
+    "ApprovalThreshold": 150000
+  },
+  {
+    "DepartmentName": "HR",
+    "ApproverName": "Priya Nair",
+    "ApproverEmail": "hr-approver@example.com",
+    "ApproverSlackId": "U0HR000001",
+    "ApprovalThreshold": 100000
+  },
+  {
+    "DepartmentName": "Procurement",
+    "ApproverName": "Vikram Singh",
+    "ApproverEmail": "procurement-approver@example.com",
+    "ApproverSlackId": "U0PROC0001",
+    "ApprovalThreshold": 500000
+  }
+]

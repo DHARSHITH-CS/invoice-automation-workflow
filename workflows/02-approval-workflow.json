@@ -1,0 +1,772 @@
+{
+  "name": "02 - Approval Workflow",
+  "nodes": [
+    {
+      "id": "node-20-schedule-every-5-minutes",
+      "name": "Schedule - Every 5 Minutes",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        -1400,
+        -300
+      ],
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "minutes",
+              "minutesInterval": 5
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "node-21-manual-trigger-demo",
+      "name": "Manual Trigger (Demo)",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        -1400,
+        -120
+      ],
+      "parameters": {}
+    },
+    {
+      "id": "node-22-nocodb-get-all-departments",
+      "name": "NocoDB - Get All Departments",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -1160,
+        -300
+      ],
+      "parameters": {
+        "method": "GET",
+        "url": "={{ $env.NOCODB_BASE_URL }}/api/v2/tables/{{ $env.NOCODB_TABLE_DEPARTMENTS }}/records",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "options": {},
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "limit",
+              "value": "100"
+            }
+          ]
+        }
+      },
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "3",
+          "name": "NocoDB API Token"
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000
+    },
+    {
+      "id": "node-23-nocodb-get-pending-approvals",
+      "name": "NocoDB - Get Pending Approvals",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -920,
+        -300
+      ],
+      "parameters": {
+        "method": "GET",
+        "url": "={{ $env.NOCODB_BASE_URL }}/api/v2/tables/{{ $env.NOCODB_TABLE_INVOICES }}/records",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "options": {},
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "where",
+              "value": "(SendForApproval,eq,true)~and(ApplicationStatus,eq,Draft)"
+            },
+            {
+              "name": "limit",
+              "value": "100"
+            }
+          ]
+        }
+      },
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "3",
+          "name": "NocoDB API Token"
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000
+    },
+    {
+      "id": "node-24-split-out-pending-invoices",
+      "name": "Split Out Pending Invoices",
+      "type": "n8n-nodes-base.splitOut",
+      "typeVersion": 1,
+      "position": [
+        -680,
+        -300
+      ],
+      "parameters": {
+        "fieldToSplitOut": "list",
+        "include": "noOtherFields"
+      }
+    },
+    {
+      "id": "node-25-resolve-approvers-per-invoice",
+      "name": "Resolve Approvers Per Invoice",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -440,
+        -300
+      ],
+      "parameters": {
+        "jsCode": "const deptResponse = $('NocoDB - Get All Departments').first().json;\nconst departments = deptResponse.list || [];\n\nfunction randomToken(len) {\n  len = len || 24;\n  const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';\n  let out = '';\n  for (let i = 0; i < len; i++) out += chars[Math.floor(Math.random() * chars.length)];\n  return out;\n}\n\nreturn $input.all().map(item => {\n  const invoice = item.json.list ? item.json.list : item.json;\n  let selected = invoice.SelectedDepartments || '';\n  let selectedList = [];\n  if (Array.isArray(selected)) {\n    selectedList = selected;\n  } else if (typeof selected === 'string' && selected.trim() !== '') {\n    try {\n      const parsed = JSON.parse(selected);\n      selectedList = Array.isArray(parsed) ? parsed : selected.split(',').map(s => s.trim());\n    } catch (e) {\n      selectedList = selected.split(',').map(s => s.trim()).filter(Boolean);\n    }\n  }\n\n  const approvers = selectedList\n    .map(deptName => departments.find(d => d.DepartmentName === deptName))\n    .filter(Boolean)\n    .map(d => ({\n      department: d.DepartmentName,\n      approverName: d.ApproverName,\n      approverEmail: d.ApproverEmail,\n      approverSlackId: d.ApproverSlackId,\n    }));\n\n  const approvalToken = invoice.ApprovalToken && invoice.ApprovalToken.length > 0 ? invoice.ApprovalToken : randomToken();\n\n  return {\n    json: {\n      invoiceId: invoice.Id,\n      vendor: invoice.Vendor,\n      invoiceNumber: invoice.InvoiceNumber,\n      grossAmount: invoice.GrossAmount,\n      currency: invoice.Currency,\n      costCenter: invoice.CostCenter,\n      anomalies: invoice.Anomalies,\n      approvalToken,\n      approvers,\n    },\n  };\n});"
+      }
+    },
+    {
+      "id": "node-26-nocodb-persist-approval-token",
+      "name": "NocoDB - Persist Approval Token",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -200,
+        -300
+      ],
+      "parameters": {
+        "method": "PATCH",
+        "url": "={{ $env.NOCODB_BASE_URL }}/api/v2/tables/{{ $env.NOCODB_TABLE_INVOICES }}/records",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "options": {},
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ Id: $json.invoiceId, ApprovalToken: $json.approvalToken }) }}"
+      },
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "3",
+          "name": "NocoDB API Token"
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000
+    },
+    {
+      "id": "node-27-reattach-context-after-token-persist",
+      "name": "Reattach Context After Token Persist",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        40,
+        -300
+      ],
+      "parameters": {
+        "jsCode": "return $input.all().map((item, idx) => {\n  const original = $('Resolve Approvers Per Invoice').all()[idx].json;\n  return { json: original };\n});"
+      }
+    },
+    {
+      "id": "node-28-split-out-approvers",
+      "name": "Split Out Approvers",
+      "type": "n8n-nodes-base.splitOut",
+      "typeVersion": 1,
+      "position": [
+        280,
+        -300
+      ],
+      "parameters": {
+        "fieldToSplitOut": "approvers",
+        "include": "allOtherFields"
+      }
+    },
+    {
+      "id": "node-29-build-approval-links-message",
+      "name": "Build Approval Links & Message",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        520,
+        -300
+      ],
+      "parameters": {
+        "jsCode": "return $input.all().map((item, idx) => {\n  const d = item.json;\n  const base = $env.APPROVAL_WEBHOOK_BASE_URL;\n  const approveUrl = `${base}/webhook/invoice-approval-response?invoiceId=${d.invoiceId}&token=${d.approvalToken}&action=approve&approver=${encodeURIComponent(d.approvers.approverEmail)}`;\n  const rejectUrl = `${base}/webhook/invoice-approval-response?invoiceId=${d.invoiceId}&token=${d.approvalToken}&action=reject&approver=${encodeURIComponent(d.approvers.approverEmail)}`;\n  const anomalies = (() => { try { return JSON.parse(d.anomalies || '[]'); } catch (e) { return []; } })();\n\n  return {\n    json: {\n      ...d,\n      approveUrl,\n      rejectUrl,\n      anomaliesText: anomalies.length ? anomalies.join('; ') : 'None',\n    },\n  };\n});"
+      }
+    },
+    {
+      "id": "node-30-slack-send-approval-request",
+      "name": "Slack - Send Approval Request",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        760,
+        -400
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "https://slack.com/api/chat.postMessage",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ channel: $json.approvers.approverSlackId, text: 'Invoice ' + $json.invoiceNumber + ' from ' + $json.vendor + ' needs your approval (' + $json.grossAmount + ' ' + $json.currency + ')', blocks: [ { type: 'section', text: { type: 'mrkdwn', text: '*Invoice Approval Requested*\\n*Vendor:* ' + $json.vendor + '\\n*Invoice #:* ' + $json.invoiceNumber + '\\n*Amount:* ' + $json.grossAmount + ' ' + $json.currency + '\\n*Cost Center:* ' + $json.costCenter + '\\n*Anomalies:* ' + $json.anomaliesText } }, { type: 'actions', elements: [ { type: 'button', style: 'primary', text: { type: 'plain_text', text: 'Approve' }, url: $json.approveUrl }, { type: 'button', style: 'danger', text: { type: 'plain_text', text: 'Reject' }, url: $json.rejectUrl } ] } ] }) }}",
+        "options": {}
+      },
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "4",
+          "name": "Slack Bot Token"
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000,
+      "onError": "continueRegularOutput"
+    },
+    {
+      "id": "node-31-email-send-approval-request",
+      "name": "Email - Send Approval Request",
+      "type": "n8n-nodes-base.emailSend",
+      "typeVersion": 2.1,
+      "position": [
+        760,
+        -200
+      ],
+      "parameters": {
+        "fromEmail": "={{ $env.SMTP_FROM_ADDRESS }}",
+        "toEmail": "={{ $json.approvers.approverEmail }}",
+        "subject": "=Approval needed: Invoice {{ $json.invoiceNumber }} - {{ $json.vendor }}",
+        "emailFormat": "html",
+        "html": "=<p>Invoice <b>{{ $json.invoiceNumber }}</b> from <b>{{ $json.vendor }}</b> for <b>{{ $json.grossAmount }} {{ $json.currency }}</b> (Cost Center: {{ $json.costCenter }}) needs your approval.</p><p>Anomalies: {{ $json.anomaliesText }}</p><p><a href=\"{{ $json.approveUrl }}\">Approve</a> &nbsp;|&nbsp; <a href=\"{{ $json.rejectUrl }}\">Reject</a></p>",
+        "options": {}
+      },
+      "credentials": {
+        "smtp": {
+          "id": "5",
+          "name": "SMTP account"
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000,
+      "onError": "continueRegularOutput"
+    },
+    {
+      "id": "node-32-reattach-context-after-slack",
+      "name": "Reattach Context After Slack",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1000,
+        -400
+      ],
+      "parameters": {
+        "jsCode": "return $input.all().map((item, idx) => {\n  const original = $('Build Approval Links & Message').all()[idx].json;\n  return { json: { ...original, slackResult: item.json } };\n});"
+      }
+    },
+    {
+      "id": "node-33-reattach-context-after-email",
+      "name": "Reattach Context After Email",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1000,
+        -200
+      ],
+      "parameters": {
+        "jsCode": "return $input.all().map((item, idx) => {\n  const original = $('Build Approval Links & Message').all()[idx].json;\n  return { json: { ...original, emailResult: item.json } };\n});"
+      }
+    },
+    {
+      "id": "node-34-merge-notification-branches",
+      "name": "Merge Notification Branches",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3,
+      "position": [
+        1240,
+        -300
+      ],
+      "parameters": {
+        "mode": "combine",
+        "combineBy": "combineByPosition"
+      }
+    },
+    {
+      "id": "node-35-nocodb-write-audit-log-sent-for-approval",
+      "name": "NocoDB - Write Audit Log (Sent For Approval)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1480,
+        -300
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.NOCODB_BASE_URL }}/api/v2/tables/{{ $env.NOCODB_TABLE_AUDITLOG }}/records",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "options": {},
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ InvoiceId: $json.invoiceId, Action: 'Sent_For_Approval', Actor: 'system:approval-workflow', Details: JSON.stringify({ department: $json.approvers.department, approverEmail: $json.approvers.approverEmail, slackOk: !!($json.slackResult && $json.slackResult.ok), emailSent: !!$json.emailResult }), }) }}"
+      },
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "3",
+          "name": "NocoDB API Token"
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000
+    },
+    {
+      "id": "node-36-webhook-approval-response",
+      "name": "Webhook - Approval Response",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        -1400,
+        200
+      ],
+      "parameters": {
+        "httpMethod": "GET",
+        "path": "invoice-approval-response",
+        "responseMode": "responseNode",
+        "options": {}
+      }
+    },
+    {
+      "id": "node-37-nocodb-get-invoice-by-id",
+      "name": "NocoDB - Get Invoice By Id",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -1160,
+        200
+      ],
+      "parameters": {
+        "method": "GET",
+        "url": "={{ $env.NOCODB_BASE_URL }}/api/v2/tables/{{ $env.NOCODB_TABLE_INVOICES }}/records/{{ $json.query.invoiceId }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "options": {}
+      },
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "3",
+          "name": "NocoDB API Token"
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000
+    },
+    {
+      "id": "node-38-is-token-valid-still-draft",
+      "name": "Is Token Valid & Still Draft?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        -920,
+        200
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "cond-token",
+              "leftValue": "={{ $json.ApprovalToken }}",
+              "rightValue": "={{ $('Webhook - Approval Response').item.json.query.token }}",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            },
+            {
+              "id": "cond-draft",
+              "leftValue": "={{$json.ApplicationStatus}}",
+              "rightValue": "Draft",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "node-39-respond-invalid-or-already-processed",
+      "name": "Respond - Invalid Or Already Processed",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.4,
+      "position": [
+        -680,
+        340
+      ],
+      "parameters": {
+        "respondWith": "text",
+        "responseBody": "This approval link is invalid or has already been used. No changes were made.",
+        "options": {
+          "responseCode": 409
+        }
+      }
+    },
+    {
+      "id": "node-40-determine-new-status",
+      "name": "Determine New Status",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -680,
+        60
+      ],
+      "parameters": {
+        "jsCode": "const query = $('Webhook - Approval Response').item.json.query;\nconst action = (query.action || '').toLowerCase();\nconst newStatus = action === 'approve' ? 'Fully Approved' : 'Rejected';\n\nreturn [{\n  json: {\n    ...$json,\n    action,\n    approver: query.approver || 'unknown',\n    newStatus,\n  },\n}];"
+      }
+    },
+    {
+      "id": "node-41-nocodb-update-invoice-status",
+      "name": "NocoDB - Update Invoice Status",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -440,
+        60
+      ],
+      "parameters": {
+        "method": "PATCH",
+        "url": "={{ $env.NOCODB_BASE_URL }}/api/v2/tables/{{ $env.NOCODB_TABLE_INVOICES }}/records",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "options": {},
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ Id: $json.Id, ApplicationStatus: $json.newStatus, SendForApproval: false }) }}"
+      },
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "3",
+          "name": "NocoDB API Token"
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000
+    },
+    {
+      "id": "node-42-nocodb-write-audit-log-approval-decision",
+      "name": "NocoDB - Write Audit Log (Approval Decision)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -200,
+        60
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.NOCODB_BASE_URL }}/api/v2/tables/{{ $env.NOCODB_TABLE_AUDITLOG }}/records",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "options": {},
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ InvoiceId: $('Determine New Status').item.json.Id, Action: $('Determine New Status').item.json.action === 'approve' ? 'Approved' : 'Rejected', Actor: 'approver:' + $('Determine New Status').item.json.approver, Details: JSON.stringify({ invoiceNumber: $('Determine New Status').item.json.InvoiceNumber, vendor: $('Determine New Status').item.json.Vendor }), }) }}"
+      },
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "3",
+          "name": "NocoDB API Token"
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000
+    },
+    {
+      "id": "node-43-respond-decision-recorded",
+      "name": "Respond - Decision Recorded",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.4,
+      "position": [
+        40,
+        60
+      ],
+      "parameters": {
+        "respondWith": "text",
+        "responseBody": "=Thank you. Invoice {{ $('Determine New Status').item.json.InvoiceNumber }} has been marked as {{ $('Determine New Status').item.json.newStatus }}.",
+        "options": {}
+      }
+    }
+  ],
+  "connections": {
+    "Schedule - Every 5 Minutes": {
+      "main": [
+        [
+          {
+            "node": "NocoDB - Get All Departments",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Manual Trigger (Demo)": {
+      "main": [
+        [
+          {
+            "node": "NocoDB - Get All Departments",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "NocoDB - Get All Departments": {
+      "main": [
+        [
+          {
+            "node": "NocoDB - Get Pending Approvals",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "NocoDB - Get Pending Approvals": {
+      "main": [
+        [
+          {
+            "node": "Split Out Pending Invoices",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Split Out Pending Invoices": {
+      "main": [
+        [
+          {
+            "node": "Resolve Approvers Per Invoice",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Resolve Approvers Per Invoice": {
+      "main": [
+        [
+          {
+            "node": "NocoDB - Persist Approval Token",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "NocoDB - Persist Approval Token": {
+      "main": [
+        [
+          {
+            "node": "Reattach Context After Token Persist",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Reattach Context After Token Persist": {
+      "main": [
+        [
+          {
+            "node": "Split Out Approvers",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Split Out Approvers": {
+      "main": [
+        [
+          {
+            "node": "Build Approval Links & Message",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Approval Links & Message": {
+      "main": [
+        [
+          {
+            "node": "Slack - Send Approval Request",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Email - Send Approval Request",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Slack - Send Approval Request": {
+      "main": [
+        [
+          {
+            "node": "Reattach Context After Slack",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Email - Send Approval Request": {
+      "main": [
+        [
+          {
+            "node": "Reattach Context After Email",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Reattach Context After Slack": {
+      "main": [
+        [
+          {
+            "node": "Merge Notification Branches",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Reattach Context After Email": {
+      "main": [
+        [
+          {
+            "node": "Merge Notification Branches",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Merge Notification Branches": {
+      "main": [
+        [
+          {
+            "node": "NocoDB - Write Audit Log (Sent For Approval)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Webhook - Approval Response": {
+      "main": [
+        [
+          {
+            "node": "NocoDB - Get Invoice By Id",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "NocoDB - Get Invoice By Id": {
+      "main": [
+        [
+          {
+            "node": "Is Token Valid & Still Draft?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Is Token Valid & Still Draft?": {
+      "main": [
+        [
+          {
+            "node": "Determine New Status",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Respond - Invalid Or Already Processed",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Determine New Status": {
+      "main": [
+        [
+          {
+            "node": "NocoDB - Update Invoice Status",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "NocoDB - Update Invoice Status": {
+      "main": [
+        [
+          {
+            "node": "NocoDB - Write Audit Log (Approval Decision)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "NocoDB - Write Audit Log (Approval Decision)": {
+      "main": [
+        [
+          {
+            "node": "Respond - Decision Recorded",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "pinData": {},
+  "meta": {
+    "instanceId": "invoice-automation-assignment"
+  }
+}
