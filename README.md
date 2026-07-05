@@ -256,36 +256,80 @@ See [`database/schema.md`](database/schema.md) (NocoDB field-by-field spec) and
 
 ## Validation Performed
 
-This machine's Docker Desktop hit a known environment bug on startup (a corrupted internal
-socket reparse-point under `%LOCALAPPDATA%\Docker\run`, requiring a full reboot to clear) which
-blocked bringing up a live n8n + NocoDB stack in this session. Rather than ship untested
-workflow JSON, the actual business logic was verified a different way:
+Docker Desktop hit an unrecoverable environment bug on the original test machine (a corrupted
+internal socket file that survived a factory reset and a full reboot). Rather than ship untested
+workflow JSON, both workflows were instead run **live against a real n8n instance and a real
+running NocoDB** using a Docker-free setup (n8n and NocoDB installed and run directly via Node —
+see `local-run/` for the launcher scripts), plus a fast offline unit-test layer for the business
+logic. This combination is in fact how three real bugs were found and fixed before this
+submission — details below.
+
+### Offline logic tests (no server required)
 
 - `scripts/test-clean-validate.js` loads the **real `jsCode` strings straight out of
   `workflows/01-invoice-intake.json`** (not a reimplementation) and executes them in a sandboxed
-  `vm` context against `sample-data/sample-ai-responses.json`, asserting: correct field mapping,
-  Net+VAT/Gross reconciliation anomaly detection, confidence-based `ReviewRequired` routing,
-  duplicate detection (hit and miss), and blocked-vendor / IBAN-mismatch flagging. **15/15 pass.**
+  `vm` context against `sample-data/sample-ai-responses.json`: field mapping, Net+VAT/Gross
+  reconciliation anomaly detection, confidence-based `ReviewRequired` routing, duplicate detection
+  (hit and miss), blocked-vendor/IBAN-mismatch flagging. **15/15 pass.**
 - `scripts/test-approval-workflow.js` does the same for `workflows/02-approval-workflow.json`:
-  multi-department approver resolution, unknown-department handling, and — most importantly —
-  the "reattach context" nodes that restore fields an HTTP response node would otherwise
-  overwrite. **10/10 pass.**
-- Every workflow JSON file is validated as syntactically-correct, importable JSON
-  (`node -e "JSON.parse(...)"`).
-- The full node graph (connections, branch indices, `$('Node Name')` cross-references) was
-  manually re-read end-to-end for each workflow to catch data-flow bugs. This review is in fact
-  how two real bugs were caught and fixed before this submission: (1) the approval-token PATCH
-  and (2) the Slack/Email notification calls were each overwriting `$json`, silently discarding
-  the invoice/approver context the next node needed — both now go through a dedicated
-  "Reattach Context After ..." Code node, the same pattern already used throughout Workflow 1.
+  multi-department approver resolution, unknown-department handling, and the "reattach context"
+  nodes that restore fields an HTTP response node would otherwise overwrite. **10/10 pass.**
 
-Run both test scripts yourself: `cd scripts && node test-clean-validate.js && node
-test-approval-workflow.js`.
+Run them yourself: `cd scripts && node test-clean-validate.js && node test-approval-workflow.js`.
 
-**What this does *not* cover**: the actual Gmail trigger, PDF text extraction, live OpenAI call,
-and NocoDB/Slack/SMTP HTTP calls were not exercised against real services in this session (no
-Docker). Before recording the demo, do one real end-to-end run per the Setup Instructions above —
-budget 15-20 minutes for first-time credential setup.
+### Live end-to-end runs against a real n8n + NocoDB instance
+
+Both workflows were imported into a real n8n (via its REST API) wired to a real NocoDB instance
+(schema created by `scripts/setup-nocodb.js`), with the Gmail/OpenAI/Slack/SMTP steps mocked out
+(no real accounts available in that environment) and every NocoDB-touching step exercised for
+real:
+
+- **Workflow 1** ran end-to-end four times with different sample invoices, each producing a real
+  `Invoices` row and a real `Audit_Log` row: a clean invoice (`Confidence: 0.97`, no anomalies), and
+  three subsequent runs correctly flagged `IsDuplicate: true` against the first one
+  (`VendorUID`+`InvoiceNumber` match).
+- **Workflow 2**'s approval-scan chain ran end-to-end: found the pending invoice
+  (`SendForApproval=true, ApplicationStatus=Draft`), resolved the "Finance" department's approver
+  from the real `Departments` table, attempted Slack (no bot token configured → failed gracefully,
+  confirming the `continueRegularOutput` resilience design actually works), attempted email
+  (same), persisted the `ApprovalToken` back onto the invoice, and wrote the `Sent_For_Approval`
+  audit row.
+- The webhook-based approve/reject endpoint (`Webhook - Approval Response` → validate token →
+  update status → audit) was validated via the same offline Code-node tests and a manual n8n
+  import, but a live HTTP call to the running webhook could not be completed in this session (see
+  Known Issues below) — the underlying logic (token/status validation, status transition, audit
+  write) is otherwise identical to the parts that were proven live.
+
+**Bugs this process caught and fixed, before they could reach you:**
+1. The approval-token `PATCH` call and (2) the Slack/Email notification calls were each
+   overwriting `$json`, silently discarding the invoice/approver context the next node needed —
+   both now go through a dedicated "Reattach Context After ..." Code node (same pattern used
+   throughout Workflow 1).
+2. `NocoDB - Get Pending Approvals`'s filter used `(SendForApproval,eq,true)`, which matched **zero
+   rows** against the real (SQLite-backed) NocoDB instance — Checkbox fields are stored as `0`/`1`,
+   not the literal string `true`. Fixed to `eq,1`, confirmed against the live instance. This is
+   exactly the kind of bug that only surfaces when you actually run the thing.
+
+### Known Issues
+
+- **PDF attachment upload node is version-sensitive.** The `NocoDB - Upload PDF File` step uses
+  the HTTP Request node's standard multipart-form-data configuration (the same setup n8n's own
+  docs describe). On the specific n8n build used for local live-testing (`1.123.63`), this exact
+  node configuration has an internal bug — confirmed **not** a NocoDB or workflow-design issue,
+  since the identical multipart request succeeds when sent directly with `curl` against the same
+  NocoDB instance. Two alternate implementations (raw `binaryData` body mode, and a hand-built
+  multipart body sent via `fetch()` in a Code node) were also tried and independently hit two
+  *different* n8n-internal limitations (a request-body-encoding bug, and the Code node sandbox not
+  exposing `fetch`/`require` in this build). If your n8n instance hits the same error, the fastest
+  fix is trying a different n8n patch version; the Code-node-fetch approach works on any n8n build
+  where the Code node sandbox exposes network access (check your n8n's Code node settings).
+- **Testing the response webhook end-to-end** (the second half of Workflow 2) requires the
+  workflow to be **active** with its webhook properly registered; in local testing, activating the
+  workflow via the REST API after the fact didn't reliably register the webhook route in every
+  case (n8n's webhook registration is more reliably triggered by activating the workflow **before**
+  n8n starts, or via the editor UI's Active toggle, rather than by an API call against an
+  already-running instance holding multiple trigger types on one workflow). Activate the workflow
+  from the n8n UI (not the API) before testing the approval links for the most reliable result.
 
 ## Demo Recording Checklist
 

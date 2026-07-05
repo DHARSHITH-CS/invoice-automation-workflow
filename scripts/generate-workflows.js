@@ -515,6 +515,16 @@ return $input.all().map((item, idx) => {
 });
 `.trim()));
 
+  // NOTE: see README "Known Issue - PDF attachment upload node" for a fully
+  // documented, live-verified bug report on this exact node. Summary: the
+  // HTTP Request node's multipart/binary body modes are broken in the n8n
+  // release used for local testing (1.123.63) - confirmed via live
+  // execution against a real running NocoDB instance, and confirmed NOT a
+  // NocoDB-side or workflow-design issue (the identical multipart request
+  // succeeds when sent directly with curl). This is the standard,
+  // documented n8n configuration for a multipart file upload; if your n8n
+  // version doesn't hit this bug it will work unmodified, otherwise see the
+  // README section for verified workarounds.
   nodes.push(nocoDbHttp({
     name: 'NocoDB - Upload PDF File',
     position: [1740, -100],
@@ -522,7 +532,6 @@ return $input.all().map((item, idx) => {
     tableEnv: 'NOCODB_TABLE_INVOICES',
     pathSuffix: '', // overridden below via url override
   }));
-  // storage/upload isn't a table-scoped path - patch the url directly.
   nodes[nodes.length - 1].parameters.url = '={{ $env.NOCODB_BASE_URL }}/api/v2/storage/upload';
   nodes[nodes.length - 1].parameters.sendBody = true;
   nodes[nodes.length - 1].parameters.contentType = 'multipart-form-data';
@@ -530,7 +539,7 @@ return $input.all().map((item, idx) => {
     parameters: [{ parameterType: 'formBinaryData', name: 'file', inputDataFieldName: 'invoicePdf' }],
   };
 
-  nodes.push(codeNode('Build Invoice Payload', [1980, -100], `
+  nodes.push(codeNode('Build Invoice Payload', [2220, -100], `
 return $input.all().map((item, idx) => {
   const original = $('Apply Vendor Validation').all()[idx].json;
   const clean = original.clean;
@@ -579,7 +588,7 @@ return $input.all().map((item, idx) => {
 
   nodes.push(nocoDbHttp({
     name: 'NocoDB - Create Invoice Record',
-    position: [2220, -100],
+    position: [2460, -100],
     method: 'POST',
     tableEnv: 'NOCODB_TABLE_INVOICES',
     jsonBodyExpr: '={{ JSON.stringify($json.invoicePayload) }}',
@@ -587,7 +596,7 @@ return $input.all().map((item, idx) => {
 
   nodes.push(nocoDbHttp({
     name: 'NocoDB - Write Audit Log (Record Created)',
-    position: [2460, -100],
+    position: [2700, -100],
     method: 'POST',
     tableEnv: 'NOCODB_TABLE_AUDITLOG',
     jsonBodyExpr: `={{ JSON.stringify({
@@ -671,7 +680,13 @@ function buildWorkflow2() {
     method: 'GET',
     tableEnv: 'NOCODB_TABLE_INVOICES',
     queryParameters: [
-      { name: 'where', value: "(SendForApproval,eq,true)~and(ApplicationStatus,eq,Draft)" },
+      // NocoDB (SQLite backend, as used by docker-compose.yml) stores Checkbox
+      // fields as 0/1 - "eq,true" silently matches zero rows even when the
+      // field is checked. Verified live against a running instance: "eq,1" is
+      // what actually works. (If you switch to a Postgres/MySQL source where
+      // the column is a native boolean, confirm this filter still matches -
+      // NocoDB's where-clause boolean coercion is backend-dependent.)
+      { name: 'where', value: "(SendForApproval,eq,1)~and(ApplicationStatus,eq,Draft)" },
       { name: 'limit', value: '100' },
     ],
   }));

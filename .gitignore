@@ -1,13 +1,29 @@
-# local-run is a throwaway dev harness (no Docker on this machine) - never ship its deps/data
+# local-run is a Docker-free dev harness used to live-test the workflows
+# against a real n8n + NocoDB (see README "Validation Performed"). Keep the
+# launcher/test scripts as documentation of that process; exclude generated
+# data, session artifacts, and anything credential-shaped.
 local-run/node_modules/
 local-run/n8n-data/
+local-run/nc/
 local-run/*.log
+local-run/*.db
 local-run/nc_data*
+local-run/exec*.json
+local-run/wf_full*.json
+local-run/run*_body.json
+local-run/update_body.json
+local-run/test-intake-workflow.json
+local-run/imported-workflow-ids.json
+local-run/*_token.txt
+local-run/*_api_key.txt
+local-run/*_cookies.txt
+local-run/patch-test-multipart.js
 
 # secrets - never commit real credentials
 docker/.env
 
 node_modules/
 *.log
-local-run/*.db
-local-run/noco.db
+local-run/wf2_full.json
+local-run/test_multipart_body.bin
+local-run/*.bin

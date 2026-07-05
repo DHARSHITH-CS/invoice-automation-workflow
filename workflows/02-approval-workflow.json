@@ -87,7 +87,7 @@
           "parameters": [
             {
               "name": "where",
-              "value": "(SendForApproval,eq,true)~and(ApplicationStatus,eq,Draft)"
+              "value": "(SendForApproval,eq,1)~and(ApplicationStatus,eq,Draft)"
             },
             {
               "name": "limit",

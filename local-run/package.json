@@ -4,6 +4,7 @@
   "private": true,
   "dependencies": {
     "express": "^5.2.1",
+    "n8n": "^1.123.63",
     "nocodb": "^0.301.3"
   }
 }
